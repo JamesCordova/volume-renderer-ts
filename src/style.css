@@ -1,0 +1,37 @@
+@import 'lil-gui/dist/lil-gui.min.css';
+
+body {
+    background-color: #000;
+    height: 100%;
+    margin: 0;
+    overflow: hidden;
+}
+
+.info {
+    box-sizing: border-box;
+    color: #fff;
+    padding: 10px;
+    position: absolute;
+    text-align: center;
+    top: 0;
+    width: 100%;
+    user-select: none;
+}
+
+.info a {
+    color: #aaf;
+}
+
+.glsl {
+    background-color: #fff4;
+    border: 0;
+    color: #3f3;
+    height: 200px;
+    overflow: auto;
+    position: absolute;
+    right: 266px;
+    resize: none;
+    top: 5px;
+    visibility: hidden;
+    width: 300px;
+}
