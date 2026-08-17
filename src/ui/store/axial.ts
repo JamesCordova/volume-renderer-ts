@@ -49,6 +49,14 @@ interface AxialState {
     studiesStatus: string
     sessionId: string | null
     volumeLoader: VolumeLoader | null
+    /** Login o registro en curso -- para mostrar skeleton en vez de un
+     * formulario que parece congelado mientras se espera la red. */
+    accountLoading: boolean
+    /** refreshStudies() en curso -- idem, para la grilla de la biblioteca. */
+    studiesLoading: boolean
+    /** loadSelectedStudy() en curso -- para deshabilitar la card mientras
+     * se descarga el volumen real. */
+    loadingStudyId: string | null
 
     setVolumeLoader: (loader: VolumeLoader) => void
     login: (email: string, password: string) => Promise<void>
@@ -79,10 +87,14 @@ export const useAxialStore = create<AxialState>((set, get) => ({
     studiesStatus: 'Inicia sesion primero',
     sessionId: null,
     volumeLoader: null,
+    accountLoading: false,
+    studiesLoading: false,
+    loadingStudyId: null,
 
     setVolumeLoader: (loader) => set({ volumeLoader: loader }),
 
     login: async (email, password) => {
+        set({ accountLoading: true })
         try {
             const { access_token } = await axialClient.login(email, password)
             persistToken(access_token)
@@ -91,15 +103,20 @@ export const useAxialStore = create<AxialState>((set, get) => ({
             await get().refreshStudies()
         } catch (err) {
             set({ accountStatus: `Error: ${(err as Error).message}` })
+        } finally {
+            set({ accountLoading: false })
         }
     },
 
     register: async (name, email, password) => {
+        set({ accountLoading: true })
         try {
             await axialClient.register(name, email, password)
             set({ accountStatus: 'Registrado -- ahora inicia sesion' })
         } catch (err) {
             set({ accountStatus: `Error de registro: ${(err as Error).message}` })
+        } finally {
+            set({ accountLoading: false })
         }
     },
 
@@ -121,6 +138,7 @@ export const useAxialStore = create<AxialState>((set, get) => ({
     refreshStudies: async () => {
         const { token } = get()
         if (!token) return
+        set({ studiesLoading: true })
         try {
             const studies = await axialClient.listStudies(token)
             set({
@@ -132,6 +150,8 @@ export const useAxialStore = create<AxialState>((set, get) => ({
             })
         } catch (err) {
             set({ studiesStatus: `Error al listar: ${(err as Error).message}` })
+        } finally {
+            set({ studiesLoading: false })
         }
     },
 
@@ -159,6 +179,7 @@ export const useAxialStore = create<AxialState>((set, get) => ({
             return
         }
 
+        set({ loadingStudyId: study.id })
         try {
             set({ studiesStatus: 'Descargando volumen...' })
             await endCurrentSessionIfAny(sessionId, token)
@@ -173,6 +194,8 @@ export const useAxialStore = create<AxialState>((set, get) => ({
             set({ sessionId: session.id, studiesStatus: `Cargado: ${study.name} (${detailLevel})` })
         } catch (err) {
             set({ studiesStatus: `Error: ${(err as Error).message}` })
+        } finally {
+            set({ loadingStudyId: null })
         }
     },
 }))

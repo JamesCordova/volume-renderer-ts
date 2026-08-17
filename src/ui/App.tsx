@@ -21,7 +21,7 @@ export default function App() {
             <Account />
             <Library />
 
-            <div className="pointer-events-auto flex gap-1 self-start rounded-md border border-[var(--color-border)] bg-[var(--color-bg-elevated)] p-1 text-xs text-[var(--color-fg)] shadow-sm">
+            <div className="pointer-events-auto flex gap-1 self-start rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-elevated)] p-1 text-xs text-[var(--color-fg)] shadow-[0_1px_3px_var(--color-shadow)]">
                 {(['system', 'light', 'dark'] as const).map((option) => (
                     <button
                         key={option}
@@ -31,7 +31,7 @@ export default function App() {
                             'rounded px-2 py-1 transition-colors ' +
                             (theme === option
                                 ? 'bg-[var(--color-accent)] text-[var(--color-accent-fg)]'
-                                : 'hover:bg-[var(--color-border)]')
+                                : 'text-[var(--color-fg-muted)] hover:bg-[var(--color-hover)]')
                         }
                     >
                         {option}

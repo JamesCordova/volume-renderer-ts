@@ -1,42 +1,112 @@
 @import "tailwindcss";
 
 /*
- * Tokens de tema para la capa de React. Paleta clara definida en :root;
- * :root:not([data-theme="light"]) cubre el caso "sistema" (sin eleccion
- * explicita) via prefers-color-scheme; [data-theme="dark"] cubre la
- * eleccion explicita del usuario y gana siempre. Ver arquitectura-frontend-react.md.
+ * Sistema de color de la capa de React. Regla 60/30/10:
+ *   60% -- neutro dominante (fondo de pagina, la superficie mas grande)
+ *   30% -- neutro secundario (cards, paneles, bordes -- lo que separa areas)
+ *   10% -- acento (accion primaria, seleccion, foco -- nunca fondo grande)
+ * El acento es un azul deliberadamente poco comun (indigo, no el azul
+ * generico de cualquier framework) para que se note cuando aparece.
+ *
+ * Escala neutra cruda (gray-*) solo se usa para derivar los tokens
+ * semanticos de abajo -- los componentes consumen los tokens semanticos
+ * (--color-bg, --color-border, etc.), nunca gray-* directo, para que el
+ * tema oscuro solo tenga que redefinirse en un lugar.
  */
 :root {
-    --color-bg: #f7f7f8;
-    --color-bg-elevated: #ffffff;
-    --color-fg: #1a1a1e;
-    --color-fg-muted: #63636b;
-    --color-border: #dcdce0;
-    --color-accent: #3b6ef0;
-    --color-accent-fg: #ffffff;
-    --color-danger: #d43a3a;
+    /* escala neutra, clara -> oscura */
+    --gray-0: #ffffff;
+    --gray-50: #f7f7f8;   /* blanco ~97% */
+    --gray-100: #eeeef0;  /* blanco ~93% */
+    --gray-200: #e1e1e4;
+    --gray-300: #cacace;
+    --gray-400: #a5a5ac;
+    --gray-500: #82828a;
+    --gray-600: #616167;
+    --gray-700: #46464b;
+    --gray-800: #2c2c30;
+    --gray-900: #1a1a1d;
+    --gray-950: #0e0e10;  /* negro ~94% */
+    --gray-1000: #000000;
+
+    /* acento: indigo poco comun, no el azul default de ningun framework */
+    --blue-500: #3d55d9;
+    --blue-400: #6d80e8;
+    --blue-300: #9aa6f0;
+
+    /* tokens semanticos -- tema claro (60/30/10) */
+    --color-bg: var(--gray-50);            /* 60%: fondo de pagina */
+    --color-bg-elevated: var(--gray-0);    /* 30%: cards/paneles sobre el fondo */
+    --color-bg-subtle: var(--gray-100);    /* variante para inputs/zonas internas */
+    --color-hover: var(--gray-200);        /* hover sobre superficies neutras */
+    --color-border: var(--gray-200);
+    --color-border-strong: var(--gray-300);
+    --color-fg: var(--gray-900);
+    --color-fg-muted: var(--gray-600);
+    --color-fg-subtle: var(--gray-400);
+    --color-accent: var(--blue-500);       /* 10%: nunca como fondo grande */
+    --color-accent-hover: #32439f;
+    --color-accent-fg: var(--gray-0);
+    --color-danger: #c0392b;
+    --color-danger-fg: var(--gray-0);
+    --color-success: #2f7d4f;
+    --color-shadow: rgb(0 0 0 / 0.08);
 }
 
 @media (prefers-color-scheme: dark) {
     :root:not([data-theme='light']) {
-        --color-bg: #17171b;
-        --color-bg-elevated: #1f1f24;
-        --color-fg: #ececef;
-        --color-fg-muted: #9a9aa3;
-        --color-border: #33333a;
-        --color-accent: #6d93ff;
-        --color-accent-fg: #0e1320;
-        --color-danger: #ff6b6b;
+        --color-bg: var(--gray-950);
+        --color-bg-elevated: var(--gray-900);
+        --color-bg-subtle: var(--gray-800);
+        --color-hover: var(--gray-800);
+        --color-border: var(--gray-800);
+        --color-border-strong: var(--gray-700);
+        --color-fg: var(--gray-50);
+        --color-fg-muted: var(--gray-400);
+        --color-fg-subtle: var(--gray-600);
+        --color-accent: var(--blue-400);
+        --color-accent-hover: var(--blue-300);
+        --color-accent-fg: var(--gray-950);
+        --color-danger: #e0685a;
+        --color-danger-fg: var(--gray-950);
+        --color-success: #5cbf85;
+        --color-shadow: rgb(0 0 0 / 0.4);
     }
 }
 
 :root[data-theme='dark'] {
-    --color-bg: #17171b;
-    --color-bg-elevated: #1f1f24;
-    --color-fg: #ececef;
-    --color-fg-muted: #9a9aa3;
-    --color-border: #33333a;
-    --color-accent: #6d93ff;
-    --color-accent-fg: #0e1320;
-    --color-danger: #ff6b6b;
+    --color-bg: var(--gray-950);
+    --color-bg-elevated: var(--gray-900);
+    --color-bg-subtle: var(--gray-800);
+    --color-hover: var(--gray-800);
+    --color-border: var(--gray-800);
+    --color-border-strong: var(--gray-700);
+    --color-fg: var(--gray-50);
+    --color-fg-muted: var(--gray-400);
+    --color-fg-subtle: var(--gray-600);
+    --color-accent: var(--blue-400);
+    --color-accent-hover: var(--blue-300);
+    --color-accent-fg: var(--gray-950);
+    --color-danger: #e0685a;
+    --color-danger-fg: var(--gray-950);
+    --color-success: #5cbf85;
+    --color-shadow: rgb(0 0 0 / 0.4);
+}
+
+/* Shimmer de skeleton -- unico "movimiento" decorativo del sistema, para
+   que cargar la biblioteca no se sienta como una pantalla congelada. */
+@keyframes axial-shimmer {
+    0% { background-position: -200% 0; }
+    100% { background-position: 200% 0; }
+}
+
+.axial-skeleton {
+    background-image: linear-gradient(
+        90deg,
+        var(--color-bg-subtle) 25%,
+        var(--color-border) 50%,
+        var(--color-bg-subtle) 75%
+    );
+    background-size: 200% 100%;
+    animation: axial-shimmer 1.4s ease-in-out infinite;
 }
