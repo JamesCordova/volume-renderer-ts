@@ -22,6 +22,15 @@ body {
     color: #aaf;
 }
 
+/* Capa de UI en React, superpuesta al canvas de Three.js. pointer-events:none
+   por defecto para que los clicks lleguen al canvas (rotar/zoom); cada
+   control real dentro reactiva pointer-events:auto sobre si mismo. */
+#react-root {
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+}
+
 .glsl {
     background-color: #fff4;
     border: 0;

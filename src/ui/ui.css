@@ -1,0 +1,42 @@
+@import "tailwindcss";
+
+/*
+ * Tokens de tema para la capa de React. Paleta clara definida en :root;
+ * :root:not([data-theme="light"]) cubre el caso "sistema" (sin eleccion
+ * explicita) via prefers-color-scheme; [data-theme="dark"] cubre la
+ * eleccion explicita del usuario y gana siempre. Ver arquitectura-frontend-react.md.
+ */
+:root {
+    --color-bg: #f7f7f8;
+    --color-bg-elevated: #ffffff;
+    --color-fg: #1a1a1e;
+    --color-fg-muted: #63636b;
+    --color-border: #dcdce0;
+    --color-accent: #3b6ef0;
+    --color-accent-fg: #ffffff;
+    --color-danger: #d43a3a;
+}
+
+@media (prefers-color-scheme: dark) {
+    :root:not([data-theme='light']) {
+        --color-bg: #17171b;
+        --color-bg-elevated: #1f1f24;
+        --color-fg: #ececef;
+        --color-fg-muted: #9a9aa3;
+        --color-border: #33333a;
+        --color-accent: #6d93ff;
+        --color-accent-fg: #0e1320;
+        --color-danger: #ff6b6b;
+    }
+}
+
+:root[data-theme='dark'] {
+    --color-bg: #17171b;
+    --color-bg-elevated: #1f1f24;
+    --color-fg: #ececef;
+    --color-fg-muted: #9a9aa3;
+    --color-border: #33333a;
+    --color-accent: #6d93ff;
+    --color-accent-fg: #0e1320;
+    --color-danger: #ff6b6b;
+}

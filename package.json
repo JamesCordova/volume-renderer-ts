@@ -9,7 +9,11 @@
     "preview": "vite preview"
   },
   "devDependencies": {
+    "@tailwindcss/vite": "^4.3.3",
+    "@types/react": "^19.2.18",
+    "@types/react-dom": "^19.2.7",
     "@types/three": "^0.185.0",
+    "tailwindcss": "^4.3.3",
     "typescript": "~6.0.2",
     "vite": "^8.1.1"
   },
@@ -17,6 +21,9 @@
     "fflate": "^0.8.3",
     "lil-gui": "^0.21.0",
     "nifti-reader-js": "^0.8.0",
-    "three": "^0.185.0"
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8",
+    "three": "^0.185.0",
+    "zustand": "^5.0.15"
   }
 }
