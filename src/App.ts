@@ -8,8 +8,8 @@ import VolumeRenderer from './renderer/VolumeRenderer.ts';
 import VolumeSamplers from './renderer/VolumeSamplers.ts';
 import type { VolumeRendererOptions } from './renderer/VolumeRenderer.ts';
 import { AxialApiClient, DEFAULT_API_BASE_URL } from './api/client.ts';
-import type { Study } from './api/client.ts';
 import { unzipSync } from 'fflate';
+import { useAxialStore } from './ui/store/axial.ts';
 
 // Mismo allowlist que RAW_DTYPES en worker-repo (interfaces/tasks/celery_app.py)
 // -- duplicado deliberado (seccion 1.3 del documento de arquitectura, sin
@@ -416,165 +416,25 @@ return 0.5 * log(r) * r / dr * 10.0 + 1.0;
         const axialClient = new AxialApiClient(
             (import.meta.env.VITE_AXIAL_API_URL as string | undefined) ?? DEFAULT_API_BASE_URL,
         );
-        const TOKEN_STORAGE_KEY = 'axial_token';
 
-        let authToken: string | null = null;
-        try {
-            authToken = localStorage.getItem(TOKEN_STORAGE_KEY);
-        } catch {
-            // localStorage puede no estar disponible (ej. modo privado
-            // estricto de algunos navegadores) -- se sigue funcionando, solo
-            // no persiste el token entre recargas.
-        }
-
-        let currentSessionId: string | null = null;
-        let studiesById: Record<string, Study> = {};
-
-        const endCurrentSessionIfAny = async (): Promise<void> => {
-            if (!authToken || !currentSessionId) return;
-            const sessionToEnd = currentSessionId;
-            currentSessionId = null;
-            try {
-                await axialClient.endSession(authToken, sessionToEnd);
-            } catch (err) {
-                console.error('No se pudo cerrar la sesion anterior:', err);
+        // Cuenta y biblioteca de estudios ya no viven aca -- son React ahora
+        // (ver src/ui/store/axial.ts y src/ui/components/Library.tsx). Esta
+        // seccion solo mantiene sincronizadas las variables locales que las
+        // demas carpetas de lil-gui (subida, consentimiento, SUS,
+        // interacciones) todavia usan, y le da al store la unica pieza que
+        // React no puede hacer por si solo: cargar bytes NIfTI en el canvas.
+        let authToken: string | null = useAxialStore.getState().token;
+        let currentSessionId: string | null = useAxialStore.getState().sessionId;
+        useAxialStore.getState().setVolumeLoader(loadNiftiFromArrayBuffer);
+        useAxialStore.subscribe((state) => {
+            authToken = state.token;
+            currentSessionId = state.sessionId;
+        });
+        useAxialStore.subscribe((state, prevState) => {
+            if (state.token && state.token !== prevState.token) {
+                refreshConsentStatus();
             }
-        };
-
-        const accountState = {
-            email: '',
-            password: '',
-            status: 'No conectado',
-            login: async (): Promise<void> => {
-                try {
-                    const { access_token } = await axialClient.login(accountState.email, accountState.password);
-                    authToken = access_token;
-                    try { localStorage.setItem(TOKEN_STORAGE_KEY, access_token); } catch { /* ignorar */ }
-                    const me = await axialClient.me(access_token);
-                    accountState.status = `Conectado como ${me.email} (${me.role})`;
-                    statusController.updateDisplay();
-                    await refreshStudies();
-                    await refreshConsentStatus();
-                } catch (err) {
-                    accountState.status = `Error: ${(err as Error).message}`;
-                    statusController.updateDisplay();
-                }
-            },
-            register: async (): Promise<void> => {
-                try {
-                    const name = accountState.email.split('@')[0] || 'Usuario';
-                    await axialClient.register(name, accountState.email, accountState.password);
-                    accountState.status = 'Registrado -- ahora inicia sesion';
-                    statusController.updateDisplay();
-                } catch (err) {
-                    accountState.status = `Error de registro: ${(err as Error).message}`;
-                    statusController.updateDisplay();
-                }
-            },
-            logout: async (): Promise<void> => {
-                await endCurrentSessionIfAny();
-                authToken = null;
-                try { localStorage.removeItem(TOKEN_STORAGE_KEY); } catch { /* ignorar */ }
-                accountState.status = 'No conectado';
-                statusController.updateDisplay();
-            },
-        };
-
-        const accountFolder = gui.addFolder('Cuenta Axial');
-        accountFolder.add(accountState, 'email').name('Email');
-        // lil-gui no tiene un input type="password" nativo -- aceptable para
-        // esta demo de tesis, no reemplaza un login de produccion real.
-        accountFolder.add(accountState, 'password').name('Password');
-        accountFolder.add(accountState, 'login').name('Iniciar sesion');
-        accountFolder.add(accountState, 'register').name('Registrarse');
-        accountFolder.add(accountState, 'logout').name('Cerrar sesion');
-        const statusController = accountFolder.add(accountState, 'status').name('Estado').disable();
-
-        const studiesState = {
-            selectedStudyId: '',
-            detailLevel: 'full' as 'preview' | 'full',
-            status: 'Inicia sesion primero',
-            load: async (): Promise<void> => {
-                if (!authToken || !studiesState.selectedStudyId) return;
-                const study = studiesById[studiesState.selectedStudyId];
-                if (!study) return;
-                if (study.status === 'failed') {
-                    // failed es definitivo (no "todavia") -- y ahora la API
-                    // expone el motivo real (antes solo llegaba a Postgres,
-                    // ver StudyResponse.error_message en api-repo).
-                    studiesState.status = `Fallo: ${study.error_message ?? 'motivo desconocido'}`;
-                    studiesStatusController.updateDisplay();
-                    console.error('Estudio fallido:', study.id, study.error_message);
-                    return;
-                }
-                if (study.status !== 'ready') {
-                    studiesState.status = `Todavia procesando (status=${study.status}, ` +
-                        `stage=${study.stage ?? '?'} ${study.progress_percent ?? 0}%) -- reintenta en un momento`;
-                    studiesStatusController.updateDisplay();
-                    return;
-                }
-                try {
-                    studiesState.status = 'Descargando volumen...';
-                    studiesStatusController.updateDisplay();
-
-                    await endCurrentSessionIfAny();
-
-                    const buffer = await axialClient.getStudyVolume(
-                        authToken, study.id, studiesState.detailLevel,
-                    );
-                    await loadNiftiFromArrayBuffer(buffer, true);
-
-                    const session = await axialClient.startSession(authToken, study.id);
-                    currentSessionId = session.id;
-                    await axialClient.recordInteraction(authToken, session.id, 'cargar_volumen', {
-                        detail_level: studiesState.detailLevel,
-                    });
-
-                    studiesState.status = `Cargado: ${study.name} (${studiesState.detailLevel})`;
-                    studiesStatusController.updateDisplay();
-                } catch (err) {
-                    studiesState.status = `Error: ${(err as Error).message}`;
-                    studiesStatusController.updateDisplay();
-                }
-            },
-        };
-
-        const refreshStudies = async (): Promise<void> => {
-            if (!authToken) return;
-            try {
-                const studies = await axialClient.listStudies(authToken);
-                studiesById = Object.fromEntries(studies.map(s => [s.id, s]));
-                // El id corto (8 caracteres) al final desambigua estudios con
-                // el mismo nombre+estado -- sin esto, dos estudios llamados
-                // igual colisionaban como la misma clave del objeto que
-                // recibe .options(), y uno de los dos desaparecia del
-                // dropdown (bug real, encontrado probando en el navegador).
-                const labels: Record<string, string> = Object.fromEntries(
-                    studies.map(s => [`${s.name} (${s.status}) [${s.id.slice(0, 8)}]`, s.id]),
-                );
-                studySelectController.options(labels);
-                if (studies.length > 0) {
-                    studiesState.selectedStudyId = studies[0].id;
-                    studySelectController.updateDisplay();
-                }
-                studiesState.status = studies.length > 0
-                    ? `${studies.length} estudio(s) encontrado(s)`
-                    : 'No tenes estudios todavia';
-                studiesStatusController.updateDisplay();
-            } catch (err) {
-                studiesState.status = `Error al listar: ${(err as Error).message}`;
-                studiesStatusController.updateDisplay();
-            }
-        };
-
-        const studiesFolder = gui.addFolder('Mis Estudios (Axial)');
-        const studySelectController = studiesFolder
-            .add(studiesState, 'selectedStudyId', { '(inicia sesion y refresca)': '' })
-            .name('Estudio');
-        studiesFolder.add(studiesState, 'detailLevel', ['preview', 'full']).name('Nivel de detalle');
-        studiesFolder.add({ refresh: refreshStudies }, 'refresh').name('Refrescar mis estudios');
-        studiesFolder.add(studiesState, 'load').name('Cargar estudio seleccionado');
-        const studiesStatusController = studiesFolder.add(studiesState, 'status').name('Estado').disable();
+        });
 
         // Subida real de un estudio DICOM nuevo (seccion 6.2 del documento de
         // clean architecture: un archivo = una llamada PUT, el formato ya
@@ -674,8 +534,8 @@ return 0.5 * log(r) * r / dr * 10.0 + 1.0;
                         await new Promise(resolve => setTimeout(resolve, 2000));
                     }
 
-                    await refreshStudies();
-                    uploadState.status = 'Listo -- elegilo en "Mis Estudios" y presiona Cargar';
+                    await useAxialStore.getState().refreshStudies();
+                    uploadState.status = 'Listo -- elegilo en "Biblioteca de estudios" (React) y presiona Cargar';
                     uploadStatusController.updateDisplay();
                 } catch (err) {
                     uploadState.status = `Error: ${(err as Error).message}`;
@@ -780,8 +640,8 @@ return 0.5 * log(r) * r / dr * 10.0 + 1.0;
                         await new Promise(resolve => setTimeout(resolve, 2000));
                     }
 
-                    await refreshStudies();
-                    rawUploadState.status = 'Listo -- elegilo en "Mis Estudios" y presiona Cargar';
+                    await useAxialStore.getState().refreshStudies();
+                    rawUploadState.status = 'Listo -- elegilo en "Biblioteca de estudios" (React) y presiona Cargar';
                     rawUploadStatusController.updateDisplay();
                 } catch (err) {
                     rawUploadState.status = `Error: ${(err as Error).message}`;
