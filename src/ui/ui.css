@@ -1,12 +1,13 @@
 @import "tailwindcss";
 
 /*
- * Sistema de color de la capa de React. Regla 60/30/10:
- *   60% -- neutro dominante (fondo de pagina, la superficie mas grande)
- *   30% -- neutro secundario (cards, paneles, bordes -- lo que separa areas)
- *   10% -- acento (accion primaria, seleccion, foco -- nunca fondo grande)
- * El acento es un azul deliberadamente poco comun (indigo, no el azul
- * generico de cualquier framework) para que se note cuando aparece.
+ * Sistema de color de la capa de React. Monocromo por ahora: negro/blanco
+ * (segun tema) para todo -- fondo, texto, y hasta la accion primaria
+ * (--color-invert: boton "negro sobre blanco"/"blanco sobre negro"). El
+ * acento (indigo, --color-accent) queda definido pero deliberadamente SIN
+ * USAR en ningun componente todavia -- se reserva para mas adelante, para
+ * un unico elemento que de verdad lo amerite (no para botones ni estados
+ * comunes). Volver a evaluar antes de usarlo de nuevo.
  *
  * Escala neutra cruda (gray-*) solo se usa para derivar los tokens
  * semanticos de abajo -- los componentes consumen los tokens semanticos
@@ -29,7 +30,7 @@
     --gray-950: #0e0e10;  /* negro ~94% */
     --gray-1000: #000000;
 
-    /* acento: indigo poco comun, no el azul default de ningun framework */
+    /* acento reservado, sin usar por ahora (ver comentario arriba) */
     --blue-500: #3d55d9;
     --blue-400: #6d80e8;
     --blue-300: #9aa6f0;
@@ -44,7 +45,12 @@
     --color-fg: var(--gray-900);
     --color-fg-muted: var(--gray-600);
     --color-fg-subtle: var(--gray-400);
-    --color-accent: var(--blue-500);       /* 10%: nunca como fondo grande */
+    /* "10%": negro sobre blanco (o al reves en oscuro) -- boton/seleccion
+       primaria, monocromo, no un color aparte. */
+    --color-invert: var(--gray-900);
+    --color-invert-hover: var(--gray-700);
+    --color-invert-fg: var(--gray-0);
+    --color-accent: var(--blue-500);       /* reservado, sin usar */
     --color-accent-hover: #32439f;
     --color-accent-fg: var(--gray-0);
     --color-danger: #c0392b;
@@ -64,6 +70,9 @@
         --color-fg: var(--gray-50);
         --color-fg-muted: var(--gray-400);
         --color-fg-subtle: var(--gray-600);
+        --color-invert: var(--gray-50);
+        --color-invert-hover: var(--gray-300);
+        --color-invert-fg: var(--gray-950);
         --color-accent: var(--blue-400);
         --color-accent-hover: var(--blue-300);
         --color-accent-fg: var(--gray-950);
@@ -84,6 +93,9 @@
     --color-fg: var(--gray-50);
     --color-fg-muted: var(--gray-400);
     --color-fg-subtle: var(--gray-600);
+    --color-invert: var(--gray-50);
+    --color-invert-hover: var(--gray-300);
+    --color-invert-fg: var(--gray-950);
     --color-accent: var(--blue-400);
     --color-accent-hover: var(--blue-300);
     --color-accent-fg: var(--gray-950);

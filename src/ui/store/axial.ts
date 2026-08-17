@@ -66,6 +66,13 @@ interface AxialState {
     setSelectedStudyId: (id: string) => void
     setDetailLevel: (level: 'preview' | 'full') => void
     loadSelectedStudy: () => Promise<void>
+    /** Al recargar la pagina con un token ya guardado, rellena `user` (antes
+     * quedaba en null para siempre -- la barra de cuenta se veia "cargando"
+     * eternamente porque solo login() lo seteaba). Si el token quedo
+     * invalido/expirado, cierra la sesion localmente en vez de mostrar un
+     * estado roto. La lista de estudios la trae Library.tsx solo (su propio
+     * efecto ya reacciona a `token`), no hace falta duplicarlo aca. */
+    hydrateFromStoredToken: () => Promise<void>
 }
 
 async function endCurrentSessionIfAny(sessionId: string | null, token: string | null): Promise<void> {
@@ -100,7 +107,6 @@ export const useAxialStore = create<AxialState>((set, get) => ({
             persistToken(access_token)
             const me = await axialClient.me(access_token)
             set({ token: access_token, user: me, accountStatus: `Conectado como ${me.email} (${me.role})` })
-            await get().refreshStudies()
         } catch (err) {
             set({ accountStatus: `Error: ${(err as Error).message}` })
         } finally {
@@ -198,4 +204,22 @@ export const useAxialStore = create<AxialState>((set, get) => ({
             set({ loadingStudyId: null })
         }
     },
+
+    hydrateFromStoredToken: async () => {
+        const { token } = get()
+        if (!token) return
+        try {
+            const me = await axialClient.me(token)
+            set({ user: me, accountStatus: `Conectado como ${me.email} (${me.role})` })
+        } catch {
+            // token invalido o expirado -- no tiene sentido dejar la UI en
+            // un estado "conectado" que en realidad ya no funciona.
+            persistToken(null)
+            set({ token: null, accountStatus: 'No conectado' })
+        }
+    },
 }))
+
+if (useAxialStore.getState().token) {
+    void useAxialStore.getState().hydrateFromStoredToken()
+}

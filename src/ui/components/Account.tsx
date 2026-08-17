@@ -49,19 +49,19 @@ export default function Account() {
                         placeholder="Email"
                         value={email}
                         onChange={(e) => setEmail(e.target.value)}
-                        className="rounded border border-[var(--color-border)] bg-[var(--color-bg-subtle)] px-2 py-1 outline-none focus:border-[var(--color-accent)]"
+                        className="rounded border border-[var(--color-border)] bg-[var(--color-bg-subtle)] px-2 py-1 outline-none focus:border-[var(--color-border-strong)]"
                     />
                     <input
                         type="password"
                         placeholder="Password"
                         value={password}
                         onChange={(e) => setPassword(e.target.value)}
-                        className="rounded border border-[var(--color-border)] bg-[var(--color-bg-subtle)] px-2 py-1 outline-none focus:border-[var(--color-accent)]"
+                        className="rounded border border-[var(--color-border)] bg-[var(--color-bg-subtle)] px-2 py-1 outline-none focus:border-[var(--color-border-strong)]"
                     />
                     <div className="flex gap-2">
                         <button
                             type="submit"
-                            className="flex-1 rounded bg-[var(--color-accent)] px-2 py-1 text-[var(--color-accent-fg)] hover:bg-[var(--color-accent-hover)]"
+                            className="flex-1 rounded bg-[var(--color-invert)] px-2 py-1 text-[var(--color-invert-fg)] hover:bg-[var(--color-invert-hover)]"
                         >
                             Iniciar sesion
                         </button>

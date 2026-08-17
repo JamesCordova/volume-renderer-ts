@@ -9,12 +9,12 @@ const STATUS_LABEL: Record<Study['status'], string> = {
     failed: 'Fallo',
 }
 
-/** Clases de color por estado -- el unico lugar donde el acento (azul)
- * comparte espacio con otros colores de estado, y solo como texto/borde de
- * una insignia chica, nunca como fondo grande (regla 60/30/10). */
+/** Colores de estado -- solo dos "colores" ademas de la escala neutra
+ * (verde/rojo, exito/fallo real), nada de acento. "Procesando" es neutro
+ * con un punto animado en vez de un color propio. */
 const STATUS_BADGE: Record<Study['status'], string> = {
     pending: 'text-[var(--color-fg-muted)] border-[var(--color-border-strong)]',
-    processing: 'text-[var(--color-accent)] border-[var(--color-accent)]',
+    processing: 'text-[var(--color-fg)] border-[var(--color-border-strong)]',
     ready: 'text-[var(--color-success)] border-[var(--color-success)]',
     failed: 'text-[var(--color-danger)] border-[var(--color-danger)]',
 }
@@ -68,7 +68,7 @@ function StudyCard({ study }: { study: Study }) {
             className={
                 'flex flex-col items-start gap-2 rounded-lg border p-3 text-left transition-colors disabled:opacity-50 ' +
                 (isSelected
-                    ? 'border-[var(--color-accent)]'
+                    ? 'border-[var(--color-invert)]'
                     : 'border-[var(--color-border)] hover:border-[var(--color-border-strong)] hover:bg-[var(--color-hover)]')
             }
         >
@@ -77,7 +77,10 @@ function StudyCard({ study }: { study: Study }) {
                 {study.name}
             </span>
             <div className="flex w-full items-center justify-between gap-2">
-                <span className={`rounded border px-1.5 py-0.5 text-[10px] ${STATUS_BADGE[study.status]}`}>
+                <span className={`flex items-center gap-1 rounded border px-1.5 py-0.5 text-[10px] ${STATUS_BADGE[study.status]}`}>
+                    {study.status === 'processing' && (
+                        <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-[var(--color-fg-muted)]" />
+                    )}
                     {isLoadingThis ? `${STATUS_LABEL[study.status]}...` : STATUS_LABEL[study.status]}
                     {study.status === 'processing' && study.progress_percent != null
                         ? ` ${study.progress_percent}%`
@@ -124,7 +127,7 @@ export default function Library() {
                             className={
                                 'rounded px-1.5 py-0.5 text-[10px] ' +
                                 (detailLevel === level
-                                    ? 'bg-[var(--color-accent)] text-[var(--color-accent-fg)]'
+                                    ? 'bg-[var(--color-invert)] text-[var(--color-invert-fg)]'
                                     : 'text-[var(--color-fg-muted)] hover:bg-[var(--color-hover)]')
                             }
                         >
