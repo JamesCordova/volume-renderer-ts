@@ -7,6 +7,14 @@ import GUI from 'lil-gui';
 import VolumeRenderer from './renderer/VolumeRenderer.ts';
 import VolumeSamplers from './renderer/VolumeSamplers.ts';
 import type { VolumeRendererOptions } from './renderer/VolumeRenderer.ts';
+import { AxialApiClient, DEFAULT_API_BASE_URL } from './api/client.ts';
+import type { Study } from './api/client.ts';
+import { unzipSync } from 'fflate';
+
+// Mismo allowlist que RAW_DTYPES en worker-repo (interfaces/tasks/celery_app.py)
+// -- duplicado deliberado (seccion 1.3 del documento de arquitectura, sin
+// codigo compartido por import entre repos de distinto lenguaje).
+const RAW_DTYPES = ['uint8', 'int16', 'uint16', 'int32', 'float32', 'float64'];
 
 const samples: Record<string, string> = {
     'Animated Smoke': 'nifti_samples/fds_smoke.nii.gz',
@@ -400,6 +408,509 @@ return 0.5 * log(r) * r / dr * 10.0 + 1.0;
         fileFolder.add(options, 'sampleResolution', 2, 128, 1).name('Sampling resolution');
         fileFolder.add({ load: () => objInput.click() }, 'load').name('Load OBJ file');
         fileFolder.add(options, 'createTorus').name('Sample torus knot geometry');
+
+        // --- Integracion con el backend de Axial (api-repo) -----------------
+        // Reusa loadNiftiFromArrayBuffer tal cual -- el backend ya sirve NIfTI
+        // real (worker-repo), asi que no hace falta ningun parser nuevo, solo
+        // conseguir los bytes de otro lado (la API en vez de un archivo local).
+        const axialClient = new AxialApiClient(
+            (import.meta.env.VITE_AXIAL_API_URL as string | undefined) ?? DEFAULT_API_BASE_URL,
+        );
+        const TOKEN_STORAGE_KEY = 'axial_token';
+
+        let authToken: string | null = null;
+        try {
+            authToken = localStorage.getItem(TOKEN_STORAGE_KEY);
+        } catch {
+            // localStorage puede no estar disponible (ej. modo privado
+            // estricto de algunos navegadores) -- se sigue funcionando, solo
+            // no persiste el token entre recargas.
+        }
+
+        let currentSessionId: string | null = null;
+        let studiesById: Record<string, Study> = {};
+
+        const endCurrentSessionIfAny = async (): Promise<void> => {
+            if (!authToken || !currentSessionId) return;
+            const sessionToEnd = currentSessionId;
+            currentSessionId = null;
+            try {
+                await axialClient.endSession(authToken, sessionToEnd);
+            } catch (err) {
+                console.error('No se pudo cerrar la sesion anterior:', err);
+            }
+        };
+
+        const accountState = {
+            email: '',
+            password: '',
+            status: 'No conectado',
+            login: async (): Promise<void> => {
+                try {
+                    const { access_token } = await axialClient.login(accountState.email, accountState.password);
+                    authToken = access_token;
+                    try { localStorage.setItem(TOKEN_STORAGE_KEY, access_token); } catch { /* ignorar */ }
+                    const me = await axialClient.me(access_token);
+                    accountState.status = `Conectado como ${me.email} (${me.role})`;
+                    statusController.updateDisplay();
+                    await refreshStudies();
+                    await refreshConsentStatus();
+                } catch (err) {
+                    accountState.status = `Error: ${(err as Error).message}`;
+                    statusController.updateDisplay();
+                }
+            },
+            register: async (): Promise<void> => {
+                try {
+                    const name = accountState.email.split('@')[0] || 'Usuario';
+                    await axialClient.register(name, accountState.email, accountState.password);
+                    accountState.status = 'Registrado -- ahora inicia sesion';
+                    statusController.updateDisplay();
+                } catch (err) {
+                    accountState.status = `Error de registro: ${(err as Error).message}`;
+                    statusController.updateDisplay();
+                }
+            },
+            logout: async (): Promise<void> => {
+                await endCurrentSessionIfAny();
+                authToken = null;
+                try { localStorage.removeItem(TOKEN_STORAGE_KEY); } catch { /* ignorar */ }
+                accountState.status = 'No conectado';
+                statusController.updateDisplay();
+            },
+        };
+
+        const accountFolder = gui.addFolder('Cuenta Axial');
+        accountFolder.add(accountState, 'email').name('Email');
+        // lil-gui no tiene un input type="password" nativo -- aceptable para
+        // esta demo de tesis, no reemplaza un login de produccion real.
+        accountFolder.add(accountState, 'password').name('Password');
+        accountFolder.add(accountState, 'login').name('Iniciar sesion');
+        accountFolder.add(accountState, 'register').name('Registrarse');
+        accountFolder.add(accountState, 'logout').name('Cerrar sesion');
+        const statusController = accountFolder.add(accountState, 'status').name('Estado').disable();
+
+        const studiesState = {
+            selectedStudyId: '',
+            detailLevel: 'full' as 'preview' | 'full',
+            status: 'Inicia sesion primero',
+            load: async (): Promise<void> => {
+                if (!authToken || !studiesState.selectedStudyId) return;
+                const study = studiesById[studiesState.selectedStudyId];
+                if (!study) return;
+                if (study.status === 'failed') {
+                    // failed es definitivo (no "todavia") -- y ahora la API
+                    // expone el motivo real (antes solo llegaba a Postgres,
+                    // ver StudyResponse.error_message en api-repo).
+                    studiesState.status = `Fallo: ${study.error_message ?? 'motivo desconocido'}`;
+                    studiesStatusController.updateDisplay();
+                    console.error('Estudio fallido:', study.id, study.error_message);
+                    return;
+                }
+                if (study.status !== 'ready') {
+                    studiesState.status = `Todavia procesando (status=${study.status}, ` +
+                        `stage=${study.stage ?? '?'} ${study.progress_percent ?? 0}%) -- reintenta en un momento`;
+                    studiesStatusController.updateDisplay();
+                    return;
+                }
+                try {
+                    studiesState.status = 'Descargando volumen...';
+                    studiesStatusController.updateDisplay();
+
+                    await endCurrentSessionIfAny();
+
+                    const buffer = await axialClient.getStudyVolume(
+                        authToken, study.id, studiesState.detailLevel,
+                    );
+                    await loadNiftiFromArrayBuffer(buffer, true);
+
+                    const session = await axialClient.startSession(authToken, study.id);
+                    currentSessionId = session.id;
+                    await axialClient.recordInteraction(authToken, session.id, 'cargar_volumen', {
+                        detail_level: studiesState.detailLevel,
+                    });
+
+                    studiesState.status = `Cargado: ${study.name} (${studiesState.detailLevel})`;
+                    studiesStatusController.updateDisplay();
+                } catch (err) {
+                    studiesState.status = `Error: ${(err as Error).message}`;
+                    studiesStatusController.updateDisplay();
+                }
+            },
+        };
+
+        const refreshStudies = async (): Promise<void> => {
+            if (!authToken) return;
+            try {
+                const studies = await axialClient.listStudies(authToken);
+                studiesById = Object.fromEntries(studies.map(s => [s.id, s]));
+                // El id corto (8 caracteres) al final desambigua estudios con
+                // el mismo nombre+estado -- sin esto, dos estudios llamados
+                // igual colisionaban como la misma clave del objeto que
+                // recibe .options(), y uno de los dos desaparecia del
+                // dropdown (bug real, encontrado probando en el navegador).
+                const labels: Record<string, string> = Object.fromEntries(
+                    studies.map(s => [`${s.name} (${s.status}) [${s.id.slice(0, 8)}]`, s.id]),
+                );
+                studySelectController.options(labels);
+                if (studies.length > 0) {
+                    studiesState.selectedStudyId = studies[0].id;
+                    studySelectController.updateDisplay();
+                }
+                studiesState.status = studies.length > 0
+                    ? `${studies.length} estudio(s) encontrado(s)`
+                    : 'No tenes estudios todavia';
+                studiesStatusController.updateDisplay();
+            } catch (err) {
+                studiesState.status = `Error al listar: ${(err as Error).message}`;
+                studiesStatusController.updateDisplay();
+            }
+        };
+
+        const studiesFolder = gui.addFolder('Mis Estudios (Axial)');
+        const studySelectController = studiesFolder
+            .add(studiesState, 'selectedStudyId', { '(inicia sesion y refresca)': '' })
+            .name('Estudio');
+        studiesFolder.add(studiesState, 'detailLevel', ['preview', 'full']).name('Nivel de detalle');
+        studiesFolder.add({ refresh: refreshStudies }, 'refresh').name('Refrescar mis estudios');
+        studiesFolder.add(studiesState, 'load').name('Cargar estudio seleccionado');
+        const studiesStatusController = studiesFolder.add(studiesState, 'status').name('Estado').disable();
+
+        // Subida real de un estudio DICOM nuevo (seccion 6.2 del documento de
+        // clean architecture: un archivo = una llamada PUT, el formato ya
+        // viene fragmentado en slices) -- crea el estudio, sube cada slice,
+        // confirma (encola el procesamiento en worker-repo) y hace polling
+        // hasta que quede listo (o falle), refrescando "Mis Estudios" al final.
+        // Nombres que un export real de DICOM suele traer adentro del zip
+        // pero que NO son slices de imagen -- subirlos como si lo fueran
+        // rompe la lectura de la serie en el worker (SimpleITK espera que
+        // CADA archivo sea una imagen DICOM valida).
+        const isNonImageZipEntry = (path: string): boolean => {
+            const lower = path.toLowerCase();
+            return lower.endsWith('/') || lower.endsWith('dicomdir') ||
+                lower.endsWith('.txt') || lower.endsWith('.htm') || lower.endsWith('.html') ||
+                lower.endsWith('.xml') || lower.endsWith('.json');
+        };
+
+        // Descomprime en el navegador (fflate) antes de subir -- mantiene el
+        // diseno "un archivo = una llamada" del backend (seccion 6.2 del
+        // documento de clean architecture: nunca aceptar un blob grande de
+        // una sola subida), la API/worker nunca se enteran de que hubo un zip.
+        const expandZipFiles = async (
+            files: File[],
+        ): Promise<{ filename: string; blob: Blob }[]> => {
+            const expanded: { filename: string; blob: Blob }[] = [];
+            for (const file of files) {
+                if (!file.name.toLowerCase().endsWith('.zip')) {
+                    expanded.push({ filename: file.name, blob: file });
+                    continue;
+                }
+                const buffer = new Uint8Array(await file.arrayBuffer());
+                const entries = unzipSync(buffer);
+                for (const [path, data] of Object.entries(entries)) {
+                    if (isNonImageZipEntry(path)) continue;
+                    // Aplana subcarpetas (ej. "series-000002/image-000001.dcm")
+                    // en un nombre unico -- MinIO/la API no necesitan la
+                    // estructura de carpetas, y nombres repetidos entre
+                    // subcarpetas colisionarian si no se aplanan.
+                    const flatName = path.replace(/[/\\]/g, '_');
+                    expanded.push({ filename: flatName, blob: new Blob([data]) });
+                }
+            }
+            return expanded;
+        };
+
+        const uploadState = {
+            name: 'Estudio nuevo',
+            status: 'Elegi archivos DICOM (sueltos o un .zip) y presiona Subir',
+            selectedFiles: [] as File[],
+            chooseFiles: (): void => dicomInput.click(),
+            upload: async (): Promise<void> => {
+                if (!authToken) {
+                    uploadState.status = 'Inicia sesion primero';
+                    uploadStatusController.updateDisplay();
+                    return;
+                }
+                if (uploadState.selectedFiles.length === 0) {
+                    uploadState.status = 'No elegiste ningun archivo';
+                    uploadStatusController.updateDisplay();
+                    return;
+                }
+                try {
+                    uploadState.status = 'Descomprimiendo (si hay algun .zip)...';
+                    uploadStatusController.updateDisplay();
+                    const toUpload = await expandZipFiles(uploadState.selectedFiles);
+                    if (toUpload.length === 0) {
+                        uploadState.status = 'El .zip no tenia archivos de imagen validos adentro';
+                        uploadStatusController.updateDisplay();
+                        return;
+                    }
+
+                    uploadState.status = 'Creando estudio...';
+                    uploadStatusController.updateDisplay();
+                    const study = await axialClient.createStudy(authToken, uploadState.name);
+
+                    const filenames: string[] = [];
+                    for (let i = 0; i < toUpload.length; i++) {
+                        const { filename, blob } = toUpload[i];
+                        uploadState.status = `Subiendo ${i + 1}/${toUpload.length}: ${filename}`;
+                        uploadStatusController.updateDisplay();
+                        await axialClient.uploadStudyFile(authToken, study.id, filename, blob);
+                        filenames.push(filename);
+                    }
+
+                    uploadState.status = 'Confirmando subida y encolando procesamiento...';
+                    uploadStatusController.updateDisplay();
+                    await axialClient.confirmStudyUpload(authToken, study.id, filenames);
+
+                    uploadState.status = 'Procesando (polling)...';
+                    uploadStatusController.updateDisplay();
+                    for (let attempt = 0; attempt < 30; attempt++) {
+                        const current = await axialClient.getStudy(authToken, study.id);
+                        uploadState.status = `Estado: ${current.status}` +
+                            (current.stage ? ` (${current.stage} ${current.progress_percent}%)` : '');
+                        uploadStatusController.updateDisplay();
+                        if (current.status === 'ready' || current.status === 'failed') break;
+                        await new Promise(resolve => setTimeout(resolve, 2000));
+                    }
+
+                    await refreshStudies();
+                    uploadState.status = 'Listo -- elegilo en "Mis Estudios" y presiona Cargar';
+                    uploadStatusController.updateDisplay();
+                } catch (err) {
+                    uploadState.status = `Error: ${(err as Error).message}`;
+                    uploadStatusController.updateDisplay();
+                }
+            },
+        };
+
+        const dicomInput = document.createElement('input');
+        dicomInput.type = 'file';
+        dicomInput.multiple = true;
+        dicomInput.accept = '.dcm,.zip';
+        dicomInput.style.display = 'none';
+        dicomInput.addEventListener('change', event => {
+            const files = (event.target as HTMLInputElement).files;
+            uploadState.selectedFiles = files ? Array.from(files) : [];
+            uploadState.status = `${uploadState.selectedFiles.length} archivo(s) elegido(s)`;
+            uploadStatusController.updateDisplay();
+        });
+        document.body.appendChild(dicomInput);
+
+        const uploadFolder = gui.addFolder('Subir Estudio (DICOM)');
+        uploadFolder.add(uploadState, 'name').name('Nombre del estudio');
+        uploadFolder.add(uploadState, 'chooseFiles').name('Elegir archivos DICOM');
+        uploadFolder.add(uploadState, 'upload').name('Subir y procesar');
+        const uploadStatusController = uploadFolder.add(uploadState, 'status').name('Estado').disable();
+
+        // Subida de un volumen .raw (sin cabecera, sin metadata propia --
+        // a diferencia de un DICOM real, el archivo no trae dims/dtype/spacing,
+        // asi que el usuario los declara aca. Ver ConfirmRawVolumeUpload en
+        // api-repo y _process_raw_volume en worker-repo para el resto del
+        // camino: sin normalizacion de Hounsfield (no son HU calibrados),
+        // min-max en su lugar).
+        const rawUploadState = {
+            name: 'Volumen raw',
+            dimZ: 1, dimY: 1, dimX: 1,
+            dtype: 'uint8',
+            spacingZ: 1.0, spacingY: 1.0, spacingX: 1.0,
+            // Opcional: si se sabe que los valores son HU real (u otra
+            // escala fisica conocida), declarar la ventana a mostrar en vez
+            // de dejar que el worker use min-max automatico -- ver la
+            // explicacion completa en la conversacion (aplasta el
+            // contraste si NO se declara y los datos SI eran HU real de
+            // rango ancho, ej. un .raw de 16 bits).
+            useValueRange: false,
+            valueRangeMin: -1000.0,
+            valueRangeMax: 1000.0,
+            selectedFile: null as File | null,
+            status: 'Elegi un archivo .raw y completa dims/dtype/spacing',
+            chooseFile: (): void => rawInput.click(),
+            upload: async (): Promise<void> => {
+                if (!authToken) {
+                    rawUploadState.status = 'Inicia sesion primero';
+                    rawUploadStatusController.updateDisplay();
+                    return;
+                }
+                if (!rawUploadState.selectedFile) {
+                    rawUploadState.status = 'No elegiste ningun archivo';
+                    rawUploadStatusController.updateDisplay();
+                    return;
+                }
+                try {
+                    const file = rawUploadState.selectedFile;
+                    const filename = file.name || 'volumen.raw';
+                    const dims: [number, number, number] = [
+                        rawUploadState.dimZ, rawUploadState.dimY, rawUploadState.dimX,
+                    ];
+                    const spacing: [number, number, number] = [
+                        rawUploadState.spacingZ, rawUploadState.spacingY, rawUploadState.spacingX,
+                    ];
+
+                    rawUploadState.status = 'Creando estudio...';
+                    rawUploadStatusController.updateDisplay();
+                    const study = await axialClient.createStudy(authToken, rawUploadState.name);
+
+                    rawUploadState.status = `Subiendo ${filename}...`;
+                    rawUploadStatusController.updateDisplay();
+                    await axialClient.uploadStudyFile(authToken, study.id, filename, file);
+
+                    rawUploadState.status = 'Confirmando subida y encolando procesamiento...';
+                    rawUploadStatusController.updateDisplay();
+                    const valueRange: [number, number] | undefined = rawUploadState.useValueRange
+                        ? [rawUploadState.valueRangeMin, rawUploadState.valueRangeMax]
+                        : undefined;
+                    await axialClient.confirmRawVolumeUpload(
+                        authToken, study.id, filename, dims, rawUploadState.dtype, spacing, valueRange,
+                    );
+
+                    rawUploadState.status = 'Procesando (polling)...';
+                    rawUploadStatusController.updateDisplay();
+                    for (let attempt = 0; attempt < 30; attempt++) {
+                        const current = await axialClient.getStudy(authToken, study.id);
+                        rawUploadState.status = `Estado: ${current.status}` +
+                            (current.stage ? ` (${current.stage} ${current.progress_percent}%)` : '');
+                        rawUploadStatusController.updateDisplay();
+                        if (current.status === 'ready' || current.status === 'failed') {
+                            if (current.status === 'failed') {
+                                console.error('Estudio raw fallido:', study.id, current.error_message);
+                            }
+                            break;
+                        }
+                        await new Promise(resolve => setTimeout(resolve, 2000));
+                    }
+
+                    await refreshStudies();
+                    rawUploadState.status = 'Listo -- elegilo en "Mis Estudios" y presiona Cargar';
+                    rawUploadStatusController.updateDisplay();
+                } catch (err) {
+                    rawUploadState.status = `Error: ${(err as Error).message}`;
+                    rawUploadStatusController.updateDisplay();
+                }
+            },
+        };
+
+        const rawInput = document.createElement('input');
+        rawInput.type = 'file';
+        rawInput.accept = '.raw';
+        rawInput.style.display = 'none';
+        rawInput.addEventListener('change', event => {
+            const files = (event.target as HTMLInputElement).files;
+            rawUploadState.selectedFile = files && files.length > 0 ? files[0] : null;
+            rawUploadState.status = rawUploadState.selectedFile
+                ? `Elegido: ${rawUploadState.selectedFile.name} (${rawUploadState.selectedFile.size} bytes)`
+                : 'Ningun archivo elegido';
+            rawUploadStatusController.updateDisplay();
+        });
+        document.body.appendChild(rawInput);
+
+        const rawUploadFolder = gui.addFolder('Subir Volumen RAW (sin cabecera)');
+        rawUploadFolder.add(rawUploadState, 'name').name('Nombre del estudio');
+        rawUploadFolder.add(rawUploadState, 'chooseFile').name('Elegir archivo .raw');
+        rawUploadFolder.add(rawUploadState, 'dimZ', 1, 2048, 1).name('Dim Z (slices)');
+        rawUploadFolder.add(rawUploadState, 'dimY', 1, 2048, 1).name('Dim Y (alto)');
+        rawUploadFolder.add(rawUploadState, 'dimX', 1, 2048, 1).name('Dim X (ancho)');
+        rawUploadFolder.add(rawUploadState, 'dtype', RAW_DTYPES).name('Tipo de dato');
+        rawUploadFolder.add(rawUploadState, 'spacingZ', 0.001, 100, 0.001).name('Spacing Z (mm)');
+        rawUploadFolder.add(rawUploadState, 'spacingY', 0.001, 100, 0.001).name('Spacing Y (mm)');
+        rawUploadFolder.add(rawUploadState, 'spacingX', 0.001, 100, 0.001).name('Spacing X (mm)');
+        rawUploadFolder.add(rawUploadState, 'useValueRange')
+            .name('Declarar ventana HU (opcional)');
+        rawUploadFolder.add(rawUploadState, 'valueRangeMin', -5000, 5000, 1).name('Ventana: minimo');
+        rawUploadFolder.add(rawUploadState, 'valueRangeMax', -5000, 5000, 1).name('Ventana: maximo');
+        rawUploadFolder.add(rawUploadState, 'upload').name('Subir y procesar');
+        const rawUploadStatusController = rawUploadFolder.add(rawUploadState, 'status').name('Estado').disable();
+
+        // Atribucion de actividad (seccion 9/21 del doc de arquitectura): cada
+        // vez que el usuario termina de rotar la camara con una sesion activa,
+        // se registra como interaccion -- no bloquea nada si falla, solo se
+        // loguea (no es una operacion critica para poder seguir usando el visor).
+        this.#orbitControls.addEventListener('end', () => {
+            if (!authToken || !currentSessionId) return;
+            axialClient.recordInteraction(authToken, currentSessionId, 'rotar_volumen', {
+                azimuthAngle: this.#orbitControls.getAzimuthalAngle(),
+                polarAngle: this.#orbitControls.getPolarAngle(),
+                distance: this.#orbitControls.getDistance(),
+            }).catch(err => console.error('No se pudo registrar la interaccion:', err));
+        });
+
+        window.addEventListener('beforeunload', () => {
+            // best-effort: no se puede awaitear en beforeunload, pero
+            // keepalive permite que el request salga aunque la pestana cierre.
+            if (authToken && currentSessionId) {
+                fetch(`${(import.meta.env.VITE_AXIAL_API_URL as string | undefined) ?? DEFAULT_API_BASE_URL}/sesiones/${currentSessionId}/fin`, {
+                    method: 'POST',
+                    headers: { Authorization: `Bearer ${authToken}` },
+                    keepalive: true,
+                });
+            }
+        });
+
+        const consentState = {
+            status: 'Inicia sesion primero',
+            accept: async (): Promise<void> => {
+                if (!authToken) return;
+                try {
+                    const result = await axialClient.acceptConsent(authToken);
+                    consentState.status = `Aceptado el ${result.accepted_at}`;
+                    consentStatusController.updateDisplay();
+                } catch (err) {
+                    consentState.status = `Error: ${(err as Error).message}`;
+                    consentStatusController.updateDisplay();
+                }
+            },
+        };
+
+        const refreshConsentStatus = async (): Promise<void> => {
+            if (!authToken) return;
+            try {
+                const result = await axialClient.getConsentStatus(authToken);
+                consentState.status = result.accepted
+                    ? `Aceptado el ${result.accepted_at}`
+                    : 'Todavia no aceptaste el consentimiento informado';
+                consentStatusController.updateDisplay();
+            } catch (err) {
+                consentState.status = `Error: ${(err as Error).message}`;
+                consentStatusController.updateDisplay();
+            }
+        };
+
+        const consentFolder = gui.addFolder('Consentimiento informado');
+        const consentStatusController = consentFolder.add(consentState, 'status').name('Estado').disable();
+        consentFolder.add(consentState, 'accept').name('Aceptar consentimiento');
+
+        // Las 10 respuestas viven separadas del estado de envio (status/submit)
+        // para no mezclar un indice dinamico (Record<string, number>) con
+        // campos de tipo distinto -- TypeScript no puede tipar bien esa mezcla.
+        const susQuestions: Record<string, number> = {
+            q1: 3, q2: 3, q3: 3, q4: 3, q5: 3, q6: 3, q7: 3, q8: 3, q9: 3, q10: 3,
+        };
+        const susState = {
+            status: 'Sin enviar',
+            submit: async (): Promise<void> => {
+                if (!authToken) return;
+                try {
+                    const responses = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map(n => ({
+                        question_number: n,
+                        score: susQuestions[`q${n}`],
+                    }));
+                    const result = await axialClient.submitSus(authToken, responses, currentSessionId ?? undefined);
+                    susState.status = `Enviado -- puntaje SUS: ${result.score}`;
+                    susStatusController.updateDisplay();
+                } catch (err) {
+                    susState.status = `Error: ${(err as Error).message}`;
+                    susStatusController.updateDisplay();
+                }
+            },
+        };
+
+        const susFolder = gui.addFolder('Cuestionario SUS');
+        for (let n = 1; n <= 10; n++) {
+            susFolder.add(susQuestions, `q${n}`, 1, 5, 1).name(`Pregunta ${n}`);
+        }
+        susFolder.add(susState, 'submit').name('Enviar cuestionario');
+        const susStatusController = susFolder.add(susState, 'status').name('Estado').disable();
+        // ---------------------------------------------------------------------
 
         const glslTextarea = document.querySelector<HTMLTextAreaElement>('.glsl')!;
         glslTextarea.value = functionPresets[options.functionPreset].trim();
