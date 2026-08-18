@@ -1,6 +1,7 @@
 import { useThemeStore } from './store/theme.ts'
 import Account from './components/Account.tsx'
 import Library from './components/Library.tsx'
+import Upload from './components/Upload.tsx'
 import Appearance from './components/Appearance.tsx'
 
 /**
@@ -9,13 +10,15 @@ import Appearance from './components/Appearance.tsx'
  * ./store), no por props ni por DOM.
  * Ver intern-talk/arquitectura-frontend-react.md.
  *
- * Etapa 2 (cuenta + biblioteca): reemplaza las carpetas "Cuenta Axial" y
- * "Mis Estudios (Axial)" de lil-gui. Subida, ventaneo/paleta/recorte, SUS y
- * consentimiento siguen en lil-gui hasta las etapas siguientes.
+ * Etapas 2 y 3: reemplaza las carpetas "Cuenta Axial", "Mis Estudios
+ * (Axial)", "Subir Estudio (DICOM)" y "Subir Volumen RAW" de lil-gui.
+ * Ventaneo/paleta/recorte, SUS y consentimiento siguen en lil-gui hasta las
+ * etapas siguientes.
  *
- * Distribucion: cuenta + biblioteca (el flujo principal) a la izquierda;
- * tema (una preferencia periferica, no parte del flujo) en su propia
- * esquina a la derecha, para no mezclarse con lo que si se usa a cada rato.
+ * Distribucion: cuenta + biblioteca + subida (el flujo principal) a la
+ * izquierda; tema/apariencia (preferencias perifericas, no parte del flujo)
+ * en su propia esquina a la derecha, para no mezclarse con lo que si se usa
+ * a cada rato.
  */
 export default function App() {
     const theme = useThemeStore((state) => state.theme)
@@ -32,6 +35,7 @@ export default function App() {
             <div className="axial-scroll pointer-events-auto fixed top-2 left-2 flex max-h-[calc(100vh-1rem)] flex-col gap-2 overflow-y-auto">
                 <Account />
                 <Library />
+                <Upload />
             </div>
 
             <div className="axial-scroll pointer-events-auto fixed top-2 right-2 flex max-h-[calc(100vh-1rem)] flex-col items-end gap-2 overflow-y-auto">

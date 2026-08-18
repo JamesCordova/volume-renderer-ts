@@ -11,7 +11,10 @@ import { AxialApiClient, DEFAULT_API_BASE_URL, type Study, type User } from '../
 
 const TOKEN_STORAGE_KEY = 'axial_token'
 
-const axialClient = new AxialApiClient(
+// Exportado -- otros stores (ej. upload.ts) reusan la misma instancia en vez
+// de crear la suya, aunque el cliente en si es stateless (solo importa la
+// base URL, que es la misma para toda la app).
+export const axialClient = new AxialApiClient(
     (import.meta.env.VITE_AXIAL_API_URL as string | undefined) ?? DEFAULT_API_BASE_URL,
 )
 
