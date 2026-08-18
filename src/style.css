@@ -1,5 +1,19 @@
 @import 'lil-gui/dist/lil-gui.min.css';
 
+/* lil-gui es siempre oscuro (no sigue el toggle de tema de React, es un
+   panel de dev aparte) -- pero el <select> nativo del navegador (el popup
+   que se abre al hacer click, ej. "Estudio" o "Nivel de detalle") no hereda
+   ese tema solo. Sin esto, con el SO en modo oscuro el navegador dibuja el
+   popup con su paleta clara por defecto pero el texto sigue heredando el
+   color claro de lil-gui -- texto blanco sobre fondo blanco, ilegible
+   (reportado por el usuario). Fijar color-scheme + colores explicitos lo
+   deja consistente con el resto de lil-gui sin importar el tema del SO. */
+.lil-gui select {
+    color-scheme: dark;
+    background-color: var(--widget-color);
+    color: var(--text-color);
+}
+
 body {
     background-color: #000;
     height: 100%;
