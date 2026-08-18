@@ -87,12 +87,6 @@ export default class App {
         this.#orbitControls.enableDamping  = true;
         this.#orbitControls.dampingFactor  = 0.1;
 
-        this.#scene.background = new THREE.CubeTextureLoader().load([
-            'images/pisa/px.png', 'images/pisa/nx.png',
-            'images/pisa/py.png', 'images/pisa/ny.png',
-            'images/pisa/pz.png', 'images/pisa/nz.png',
-        ]);
-
         // Control de apariencia en React (src/ui/components/Appearance.tsx):
         // color solido (reemplaza el fondo por un THREE.Color -- equivale
         // visualmente al clearColor de siempre, pero tocar scene.background
@@ -115,6 +109,10 @@ export default class App {
                 }
             },
         });
+        // El fondo inicial es el color preset guardado (persiste entre
+        // recargas) -- una imagen no puede persistir (es un archivo local),
+        // asi que al iniciar siempre se esta en modo color.
+        this.#scene.background = new THREE.Color(useSceneStore.getState().skyboxColor);
 
         this.#volumeRenderer = new VolumeRenderer();
         this.#scene.add(this.#volumeRenderer);
@@ -134,6 +132,21 @@ export default class App {
         // cuanto crezcan.
         gui.domElement.style.top = 'auto';
         gui.domElement.style.bottom = '0.5rem';
+        // lil-gui trae "max-height:100%" por CSS, que en un elemento
+        // position:fixed anclado por `bottom` (sin `top`) no siempre se
+        // resuelve contra el viewport -- con muchas carpetas abiertas el
+        // panel terminaba creciendo por encima del borde superior de la
+        // pantalla, inalcanzable. Un valor explicito en vh no depende de esa
+        // resolucion de porcentajes: nunca puede exceder el viewport.
+        gui.domElement.style.maxHeight = 'calc(100vh - 1rem)';
+        // Con tantas carpetas (File, Palette, Clip, Shader Options, Ray
+        // Stepping, subida DICOM/RAW, consentimiento, SUS...) el panel
+        // abierto mide casi el viewport entero incluso con el limite de
+        // arriba -- y ahi si se superpone con la pila de React de esa misma
+        // esquina (verificado con Playwright en varios tamanos de pantalla,
+        // no a ojo). Arranca colapsado (solo el titulo) para que eso no pase
+        // por defecto; se expande con un click cuando de verdad hace falta.
+        gui.close();
 
         const functionPresets: Record<string, string> = {
             'Sphere': `

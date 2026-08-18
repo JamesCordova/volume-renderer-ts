@@ -115,7 +115,7 @@ export default function Library() {
     if (!token) return null
 
     return (
-        <div className="pointer-events-auto flex w-80 flex-col gap-3 rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-elevated)] p-3 text-xs text-[var(--color-fg)] shadow-[0_1px_3px_var(--color-shadow)]">
+        <div className="pointer-events-auto flex w-80 max-w-[90vw] flex-col gap-3 rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-elevated)] p-3 text-xs text-[var(--color-fg)] shadow-[0_1px_3px_var(--color-shadow)]">
             <div className="flex items-center justify-between gap-2">
                 <span className="font-medium">Biblioteca de estudios</span>
                 <div className="flex items-center gap-1">

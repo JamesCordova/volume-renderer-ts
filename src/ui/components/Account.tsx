@@ -33,7 +33,7 @@ export default function Account() {
 
     return (
         <form
-            className="pointer-events-auto flex w-64 flex-col gap-2 rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-elevated)] p-3 text-xs text-[var(--color-fg)] shadow-[0_1px_3px_var(--color-shadow)]"
+            className="pointer-events-auto flex w-64 max-w-[90vw] flex-col gap-2 rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-elevated)] p-3 text-xs text-[var(--color-fg)] shadow-[0_1px_3px_var(--color-shadow)]"
             onSubmit={(e) => { e.preventDefault(); void login(email, password) }}
         >
             {accountLoading ? (
