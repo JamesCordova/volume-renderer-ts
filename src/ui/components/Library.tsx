@@ -145,7 +145,7 @@ export default function Library() {
                 </div>
             </div>
 
-            <div className="grid max-h-96 grid-cols-2 gap-2 overflow-y-auto">
+            <div className="axial-scroll grid max-h-96 grid-cols-2 gap-2 overflow-y-auto">
                 {studiesLoading && studies.length === 0 && (
                     <>
                         <StudyCardSkeleton />

@@ -29,12 +29,12 @@ export default function App() {
                 events-auto en el contenedor (no solo en cada control) para
                 que el scroll se capture aunque el mouse este en el espacio
                 entre Account y Library, no solo exactamente sobre uno. */}
-            <div className="pointer-events-auto fixed top-2 left-2 flex max-h-[calc(100vh-1rem)] flex-col gap-2 overflow-y-auto">
+            <div className="axial-scroll pointer-events-auto fixed top-2 left-2 flex max-h-[calc(100vh-1rem)] flex-col gap-2 overflow-y-auto">
                 <Account />
                 <Library />
             </div>
 
-            <div className="pointer-events-auto fixed top-2 right-2 flex max-h-[calc(100vh-1rem)] flex-col items-end gap-2 overflow-y-auto">
+            <div className="axial-scroll pointer-events-auto fixed top-2 right-2 flex max-h-[calc(100vh-1rem)] flex-col items-end gap-2 overflow-y-auto">
                 <div className="pointer-events-auto flex gap-1 rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-elevated)] p-1 text-xs text-[var(--color-fg)] shadow-[0_1px_3px_var(--color-shadow)]">
                     {(['system', 'light', 'dark'] as const).map((option) => (
                         <button

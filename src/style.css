@@ -7,21 +7,6 @@ body {
     overflow: hidden;
 }
 
-.info {
-    box-sizing: border-box;
-    color: #fff;
-    padding: 10px;
-    position: absolute;
-    text-align: center;
-    top: 0;
-    width: 100%;
-    user-select: none;
-}
-
-.info a {
-    color: #aaf;
-}
-
 /* Capa de UI en React, superpuesta al canvas de Three.js. pointer-events:none
    por defecto para que los clicks lleguen al canvas (rotar/zoom); cada
    control real dentro reactiva pointer-events:auto sobre si mismo. */
