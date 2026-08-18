@@ -10,6 +10,7 @@ import type { VolumeRendererOptions } from './renderer/VolumeRenderer.ts';
 import { AxialApiClient, DEFAULT_API_BASE_URL } from './api/client.ts';
 import { unzipSync } from 'fflate';
 import { useAxialStore } from './ui/store/axial.ts';
+import { useSceneStore } from './ui/store/scene.ts';
 
 // Mismo allowlist que RAW_DTYPES en worker-repo (interfaces/tasks/celery_app.py)
 // -- duplicado deliberado (seccion 1.3 del documento de arquitectura, sin
@@ -92,6 +93,29 @@ export default class App {
             'images/pisa/pz.png', 'images/pisa/nz.png',
         ]);
 
+        // Control de apariencia en React (src/ui/components/Appearance.tsx):
+        // color solido (reemplaza el fondo por un THREE.Color -- equivale
+        // visualmente al clearColor de siempre, pero tocar scene.background
+        // es lo correcto aca porque el renderer ya dibuja la escena entera a
+        // un render target propio, ver #renderTarget/depthTexture arriba) o
+        // una imagen equirectangular como skybox real.
+        useSceneStore.getState().setSkyboxAppliers({
+            applyColor: (hex) => {
+                this.#scene.background = new THREE.Color(hex);
+            },
+            applyImageFile: async (file) => {
+                const url = URL.createObjectURL(file);
+                try {
+                    const texture = await new THREE.TextureLoader().loadAsync(url);
+                    texture.mapping = THREE.EquirectangularReflectionMapping;
+                    texture.colorSpace = THREE.SRGBColorSpace;
+                    this.#scene.background = texture;
+                } finally {
+                    URL.revokeObjectURL(url);
+                }
+            },
+        });
+
         this.#volumeRenderer = new VolumeRenderer();
         this.#scene.add(this.#volumeRenderer);
 
@@ -103,6 +127,13 @@ export default class App {
         uniforms.valueAdded.value = 0.3;
 
         const gui = new GUI();
+        gui.title('Controles de desarrollo');
+        // Anclado abajo a la derecha (lil-gui por defecto va arriba a la
+        // derecha) para no superponerse nunca con la pila de paneles de
+        // React de esa esquina (tema + apariencia, ver App.tsx) sin importar
+        // cuanto crezcan.
+        gui.domElement.style.top = 'auto';
+        gui.domElement.style.bottom = '0.5rem';
 
         const functionPresets: Record<string, string> = {
             'Sphere': `
